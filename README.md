@@ -38,6 +38,8 @@ Or visually select lines and run `:LiveSub` to apply only within that selection.
 | `<Enter>` | Apply to the command range, or the whole buffer when no range was provided |
 | `<Esc>` | Cancel and clear previews |
 
+The prompt title shows parse errors and live match counts as you type.
+
 **Flags:** `g` (all matches on a line), `i` (ignore case). The `c` flag is not supported.
 
 ## Configuration

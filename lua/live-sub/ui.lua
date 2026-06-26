@@ -15,6 +15,17 @@ function UiHandle:get_input()
   return (vim.api.nvim_buf_get_lines(self.bufnr, 0, 1, false)[1] or "")
 end
 
+function UiHandle:set_status(status)
+  if self.closed or not self.winid or not vim.api.nvim_win_is_valid(self.winid) then
+    return
+  end
+  local title = self.prompt or ":%s"
+  if status and status ~= "" then
+    title = title .. "  — " .. status
+  end
+  pcall(vim.api.nvim_win_set_config, self.winid, { title = title })
+end
+
 function UiHandle:close()
   if self.closed then
     return
@@ -56,7 +67,13 @@ function UI.open(config, callbacks)
     title_pos = "left",
   })
 
-  local handle = setmetatable({ bufnr = bufnr, winid = winid, callbacks = callbacks, closed = false }, UiHandle)
+  local handle = setmetatable({
+    bufnr = bufnr,
+    winid = winid,
+    callbacks = callbacks,
+    closed = false,
+    prompt = config.prompt or ":%s",
+  }, UiHandle)
 
   local group = vim.api.nvim_create_augroup("LiveSubUI" .. bufnr, { clear = true })
   handle.augroup = group

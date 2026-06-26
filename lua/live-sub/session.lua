@@ -105,12 +105,48 @@ function Session:start()
   return true
 end
 
+function Session:set_status(status)
+  if self.ui and self.ui.set_status then
+    self.ui:set_status(status)
+  end
+end
+
+function Session:status_from_parse()
+  if self.input == "" then
+    return nil
+  end
+  if not self.parsed or not self.parsed.valid then
+    return (self.parsed and self.parsed.error) or "invalid substitution"
+  end
+  if self.parsed.flags and self.parsed.flags.confirm then
+    return "confirmation flag c is not supported"
+  end
+  return nil
+end
+
+function Session:status_from_preview_result(preview_result)
+  if not preview_result then
+    return "failed to render preview"
+  end
+  if preview_result.error then
+    return preview_result.error
+  end
+  if preview_result.truncated then
+    return tostring(preview_result.match_count or 0) .. "+ matches"
+  end
+  if preview_result.match_count == 1 then
+    return "1 match"
+  end
+  return tostring(preview_result.match_count or 0) .. " matches"
+end
+
 function Session:update_input(input)
   if self.closed then
     return
   end
   self.input = input or ""
   self.parsed = Parser.parse(self.input)
+  self:set_status(self:status_from_parse())
   self:schedule_preview()
 end
 
@@ -152,10 +188,17 @@ function Session:refresh_preview()
   end
   Preview.clear(self.bufnr, self.ns)
   self.last_preview_error = nil
-  if self.parsed and self.parsed.valid then
-    local preview_result = Preview.render(self.bufnr, self.winid, self.ns, self.parsed, self.config, self.range)
-    self.last_preview_error = preview_result and preview_result.error or nil
+  if not self.parsed or not self.parsed.valid then
+    self:set_status(self:status_from_parse())
+    return
   end
+  if self.parsed.flags and self.parsed.flags.confirm then
+    self:set_status("confirmation flag c is not supported")
+    return
+  end
+  local preview_result = Preview.render(self.bufnr, self.winid, self.ns, self.parsed, self.config, self.range)
+  self.last_preview_error = preview_result and preview_result.error or nil
+  self:set_status(self:status_from_preview_result(preview_result))
 end
 
 function Session:commit()

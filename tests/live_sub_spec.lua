@@ -13,6 +13,30 @@ local function assert_truthy(value, message)
   end
 end
 
+local function title_text(value)
+  if type(value) ~= "table" then
+    return tostring(value)
+  end
+  local parts = {}
+  for _, chunk in ipairs(value) do
+    if type(chunk) == "table" then
+      table.insert(parts, chunk[1] or "")
+    else
+      table.insert(parts, tostring(chunk))
+    end
+  end
+  return table.concat(parts, "")
+end
+
+local function assert_contains(value, expected, message)
+  if not title_text(value):find(expected, 1, true) then
+    error(
+      (message or "expected substring") .. ": expected " .. vim.inspect(value) .. " to contain " .. vim.inspect(expected),
+      2
+    )
+  end
+end
+
 local function new_buffer(lines)
   local bufnr = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
@@ -22,8 +46,23 @@ end
 local Parser = require("live-sub.parser")
 local Preview = require("live-sub.preview")
 local Session = require("live-sub.session")
+local UI = require("live-sub.ui")
 
 vim.cmd("runtime plugin/live-sub.lua")
+
+local function test_ui_status_updates_window_title()
+  local handle = UI.open({ width = 30, border = "single", prompt = ":%s" }, {})
+
+  handle:set_status("3 matches")
+  local status_title = vim.api.nvim_win_get_config(handle.winid).title
+  assert_contains(status_title, "3 matches", "status title")
+
+  handle:set_status(nil)
+  local reset_title = vim.api.nvim_win_get_config(handle.winid).title
+  assert_equal(title_text(reset_title), ":%s", "reset title")
+
+  handle:close()
+end
 
 local function test_parser_accepts_escaped_delimiters_and_flags()
   local parsed = Parser.parse("/a\\/b/c\\/d/gi")
@@ -70,7 +109,11 @@ local function make_test_session(lines, opts)
   vim.api.nvim_set_current_buf(target)
   return Session.new({
     debounce_ms = 80,
-    preview = { namespace = "live-sub-test", visible_only = true, max_matches = 500 },
+    preview = {
+      namespace = "live-sub-test",
+      visible_only = true,
+      max_matches = opts.max_matches or 500,
+    },
     ui = { width = 30, border = "single", prompt = ":%s" },
     keymaps = { accept = "<CR>", cancel = "<Esc>" },
     highlight = { replacement = "LiveSubReplacement" },
@@ -101,7 +144,51 @@ local function test_session_exposes_preview_regex_errors()
   session:update_input("/\\(/x/")
   session:refresh_preview()
 
-  assert_truthy(session.last_preview_error, "invalid preview regex should be recorded")
+  local title = vim.api.nvim_win_get_config(session.ui.winid).title
+  assert_contains(title, "E54:", "regex error status")
+  session:close()
+end
+
+local function test_session_shows_parse_error_status()
+  local session = make_test_session({ "foo" })
+  assert_truthy(session:start(), "session should start")
+  session:update_input("foo")
+
+  local title = vim.api.nvim_win_get_config(session.ui.winid).title
+  assert_contains(title, "input must start with /", "parse error status")
+  session:close()
+end
+
+local function test_session_shows_preview_match_count_status()
+  local session = make_test_session({ "foo foo" })
+  assert_truthy(session:start(), "session should start")
+  session:update_input("/foo/bar/g")
+  session:refresh_preview()
+
+  local title = vim.api.nvim_win_get_config(session.ui.winid).title
+  assert_contains(title, "2 matches", "match count status")
+  session:close()
+end
+
+local function test_session_shows_confirm_flag_status()
+  local session = make_test_session({ "foo" })
+  assert_truthy(session:start(), "session should start")
+  session:update_input("/foo/bar/c")
+  session:refresh_preview()
+
+  local title = vim.api.nvim_win_get_config(session.ui.winid).title
+  assert_contains(title, "confirmation flag c is not supported", "confirm flag status")
+  session:close()
+end
+
+local function test_session_shows_truncated_match_count_status()
+  local session = make_test_session({ "foo foo foo" }, { max_matches = 2 })
+  assert_truthy(session:start(), "session should start")
+  session:update_input("/foo/bar/g")
+  session:refresh_preview()
+
+  local title = vim.api.nvim_win_get_config(session.ui.winid).title
+  assert_contains(title, "2+ matches", "truncated match count status")
   session:close()
 end
 
@@ -166,11 +253,16 @@ local function test_live_sub_command_passes_visual_range()
 end
 
 local tests = {
+  test_ui_status_updates_window_title = test_ui_status_updates_window_title,
   test_parser_accepts_escaped_delimiters_and_flags = test_parser_accepts_escaped_delimiters_and_flags,
   test_percent_match_expands_without_crashing = test_percent_match_expands_without_crashing,
   test_preview_render_respects_explicit_range = test_preview_render_respects_explicit_range,
   test_session_ignores_text_changes_in_unrelated_buffers = test_session_ignores_text_changes_in_unrelated_buffers,
   test_session_exposes_preview_regex_errors = test_session_exposes_preview_regex_errors,
+  test_session_shows_parse_error_status = test_session_shows_parse_error_status,
+  test_session_shows_preview_match_count_status = test_session_shows_preview_match_count_status,
+  test_session_shows_confirm_flag_status = test_session_shows_confirm_flag_status,
+  test_session_shows_truncated_match_count_status = test_session_shows_truncated_match_count_status,
   test_session_commit_matches_computed_replacements = test_session_commit_matches_computed_replacements,
   test_session_commit_respects_explicit_range = test_session_commit_respects_explicit_range,
   test_live_sub_command_passes_explicit_range = test_live_sub_command_passes_explicit_range,
