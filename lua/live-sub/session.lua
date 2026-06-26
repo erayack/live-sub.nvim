@@ -18,6 +18,7 @@ function Session.new(config, opts)
     ui = nil,
     input = "",
     parsed = nil,
+    range = opts.range,
     debounce_timer = nil,
     closed = false,
     last_preview_version = 0,
@@ -147,7 +148,7 @@ function Session:refresh_preview()
   Preview.clear(self.bufnr, self.ns)
   self.last_preview_error = nil
   if self.parsed and self.parsed.valid then
-    local preview_result = Preview.render(self.bufnr, self.winid, self.ns, self.parsed, self.config)
+    local preview_result = Preview.render(self.bufnr, self.winid, self.ns, self.parsed, self.config, self.range)
     self.last_preview_error = preview_result and preview_result.error or nil
   end
 end
@@ -172,7 +173,7 @@ function Session:commit()
     notify("target buffer is not modifiable", vim.log.levels.ERROR)
     return
   end
-  local replacements, err = Preview.compute_replacements(self.bufnr, self.parsed)
+  local replacements, err = Preview.compute_replacements(self.bufnr, self.parsed, self.range)
   if not replacements then
     notify(err or "failed to compute replacements", vim.log.levels.ERROR)
     return

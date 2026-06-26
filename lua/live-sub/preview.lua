@@ -106,7 +106,7 @@ local function compute_in_range(bufnr, parsed, first_row, last_row, max_matches)
   return replacements, nil, truncated
 end
 
-function Preview.render(bufnr, winid, ns, parsed, config)
+function Preview.render(bufnr, winid, ns, parsed, config, range)
   if not vim.api.nvim_buf_is_valid(bufnr) or not vim.api.nvim_win_is_valid(winid) then
     return result(0, false, "invalid buffer/window")
   end
@@ -129,6 +129,16 @@ function Preview.render(bufnr, winid, ns, parsed, config)
   end
   top = math.max(0, top - context)
   bottom = math.min(line_count - 1, bottom + context)
+  if range then
+    local range_first = range.first or range[1]
+    local range_last = range.last or range[2]
+    if type(range_first) == "number" and type(range_last) == "number" then
+      range_first = math.max(0, range_first)
+      range_last = math.min(line_count - 1, range_last)
+      top = math.max(top, range_first)
+      bottom = math.min(bottom, range_last)
+    end
+  end
 
   local replacements, err, truncated = compute_in_range(bufnr, parsed, top, bottom, preview_config.max_matches or 500)
   if err then
@@ -151,8 +161,8 @@ function Preview.compute_replacements(bufnr, parsed, range)
   if not vim.api.nvim_buf_is_valid(bufnr) then
     return nil, "invalid buffer"
   end
-  local first = range and range[1] or 0
-  local last = range and range[2] or (vim.api.nvim_buf_line_count(bufnr) - 1)
+  local first = range and (range.first or range[1]) or 0
+  local last = range and (range.last or range[2]) or (vim.api.nvim_buf_line_count(bufnr) - 1)
   local replacements, err = compute_in_range(bufnr, parsed, first, last, nil)
   if err then
     return nil, err

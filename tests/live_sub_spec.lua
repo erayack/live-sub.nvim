@@ -44,7 +44,26 @@ local function test_percent_match_expands_without_crashing()
   assert_equal(replacements[1].replacement, "[%]", "replacement text")
 end
 
-local function make_test_session(lines)
+local function test_preview_render_respects_explicit_range()
+  local bufnr = new_buffer({ "foo", "foo", "foo" })
+  vim.api.nvim_set_current_buf(bufnr)
+  local parsed = Parser.parse("/foo/bar/g")
+  assert_truthy(parsed.valid, parsed.error)
+  local ns = vim.api.nvim_create_namespace("live-sub-preview-range-test")
+
+  local rendered = Preview.render(bufnr, vim.api.nvim_get_current_win(), ns, parsed, {
+    preview = { visible_only = false, max_matches = 500 },
+    highlight = { replacement = "LiveSubReplacement" },
+  }, { first = 1, last = 1 })
+
+  assert_equal(rendered.match_count, 1, "range-limited preview count")
+  local marks = vim.api.nvim_buf_get_extmarks(bufnr, ns, 0, -1, {})
+  assert_equal(#marks, 1, "range-limited preview extmarks")
+  assert_equal(marks[1][2], 1, "range-limited preview row")
+end
+
+local function make_test_session(lines, opts)
+  opts = opts or {}
   local target = new_buffer(lines)
   vim.api.nvim_set_current_buf(target)
   return Session.new({
@@ -53,7 +72,7 @@ local function make_test_session(lines)
     ui = { width = 30, border = "single", prompt = ":%s" },
     keymaps = { accept = "<CR>", cancel = "<Esc>" },
     highlight = { replacement = "LiveSubReplacement" },
-  }, { bufnr = target, winid = vim.api.nvim_get_current_win() })
+  }, { bufnr = target, winid = vim.api.nvim_get_current_win(), range = opts.range })
 end
 
 local function test_session_ignores_text_changes_in_unrelated_buffers()
@@ -94,12 +113,66 @@ local function test_session_commit_matches_computed_replacements()
   assert_equal(table.concat(lines, "\n"), "bar bar\nbar", "committed buffer text")
 end
 
+local function test_session_commit_respects_explicit_range()
+  local session = make_test_session({ "foo", "foo", "foo" }, { range = { first = 1, last = 1 } })
+  assert_truthy(session:start(), "session should start")
+  session:update_input("/foo/bar/g")
+  session:commit()
+
+  local lines = vim.api.nvim_buf_get_lines(session.bufnr, 0, -1, false)
+  assert_equal(table.concat(lines, "\n"), "foo\nbar\nfoo", "range-limited committed buffer text")
+end
+
+local function test_live_sub_command_passes_explicit_range()
+  local captured
+  local original = package.loaded["live-sub"]
+  package.loaded["live-sub"] = {
+    start = function(opts)
+      captured = opts
+    end,
+  }
+  local bufnr = new_buffer({ "one", "two", "three" })
+  vim.api.nvim_set_current_buf(bufnr)
+
+  vim.cmd("2,3LiveSub")
+
+  package.loaded["live-sub"] = original
+  assert_truthy(captured, "command should call start")
+  assert_equal(captured.range.first, 1, "command range first row")
+  assert_equal(captured.range.last, 2, "command range last row")
+end
+
+local function test_live_sub_command_passes_visual_range()
+  local captured
+  local original = package.loaded["live-sub"]
+  package.loaded["live-sub"] = {
+    start = function(opts)
+      captured = opts
+    end,
+  }
+  local bufnr = new_buffer({ "one", "two", "three" })
+  vim.api.nvim_set_current_buf(bufnr)
+  vim.fn.setpos("'<", { bufnr, 2, 1, 0 })
+  vim.fn.setpos("'>", { bufnr, 3, 1, 0 })
+
+  vim.cmd("'<,'>LiveSub")
+
+  package.loaded["live-sub"] = original
+  assert_truthy(captured, "visual command should call start")
+  assert_equal(captured.range.first, vim.fn.line("'<") - 1, "visual range first row")
+  assert_equal(captured.range.last, vim.fn.line("'>") - 1, "visual range last row")
+end
+
 local tests = {
   test_parser_accepts_escaped_delimiters_and_flags = test_parser_accepts_escaped_delimiters_and_flags,
   test_percent_match_expands_without_crashing = test_percent_match_expands_without_crashing,
+  test_preview_render_respects_explicit_range = test_preview_render_respects_explicit_range,
   test_session_ignores_text_changes_in_unrelated_buffers = test_session_ignores_text_changes_in_unrelated_buffers,
   test_session_exposes_preview_regex_errors = test_session_exposes_preview_regex_errors,
   test_session_commit_matches_computed_replacements = test_session_commit_matches_computed_replacements,
+  test_session_commit_respects_explicit_range = test_session_commit_respects_explicit_range,
+  test_live_sub_command_passes_explicit_range = test_live_sub_command_passes_explicit_range,
+  test_live_sub_command_passes_visual_range = test_live_sub_command_passes_visual_range,
 }
 
 for name, fn in pairs(tests) do

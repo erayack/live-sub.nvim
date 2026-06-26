@@ -17,7 +17,7 @@ Type a `:substitute`-style expression, see replacements previewed in the buffer,
 
 ## Usage
 
-Run `:LiveSub` in a modifiable buffer, then type:
+Run `:LiveSub` in a modifiable buffer to apply across the whole buffer, then type:
 
 ```text
 /pattern/replacement/flags
@@ -25,9 +25,17 @@ Run `:LiveSub` in a modifiable buffer, then type:
 
 Example: `/foo/bar/g` replaces every `foo` with `bar`.
 
+Use an explicit range to limit the substitution to selected lines:
+
+```vim
+:2,5LiveSub
+```
+
+Or visually select lines and run `:LiveSub` to apply only within that selection.
+
 | Key | Action |
 | --- | --- |
-| `<Enter>` | Apply to the whole buffer |
+| `<Enter>` | Apply to the command range, or the whole buffer when no range was provided |
 | `<Esc>` | Cancel and clear previews |
 
 **Flags:** `g` (all matches on a line), `i` (ignore case). The `c` flag is not supported.
@@ -46,6 +54,6 @@ require("live-sub").setup({
 
 ## Notes
 
-- Previews update as you type (viewport only by default).
-- Commit applies across the full buffer, like `:%s`.
-- v1: single buffer, single-line matches, no ranges or `c` confirmation.
+- Previews update as you type (viewport only by default) and are constrained to the active range when one is supplied.
+- Commit applies across the full buffer, like `:%s`, unless `:LiveSub` was started with a range.
+- v1: single buffer, single-line matches, no `c` confirmation.

@@ -29,6 +29,18 @@ local function merge_config(opts)
   return vim.tbl_deep_extend("force", vim.deepcopy(config), opts or {})
 end
 
+local function normalize_range(range)
+  if range == nil then
+    return nil, nil
+  end
+  local first = range.first or range[1]
+  local last = range.last or range[2]
+  if type(first) ~= "number" or type(last) ~= "number" then
+    return nil, "invalid range"
+  end
+  return { first = math.min(first, last), last = math.max(first, last) }, nil
+end
+
 local function notify(msg, level)
   vim.notify("live-sub.nvim: " .. msg, level or vim.log.levels.INFO)
 end
@@ -63,7 +75,15 @@ function M.start(opts)
     current_session = nil
   end
 
-  local cfg = merge_config(opts)
+  local start_opts = opts or {}
+  local range, range_err = normalize_range(start_opts.range)
+  if range_err then
+    notify(range_err, vim.log.levels.ERROR)
+    return nil
+  end
+  local cfg_opts = vim.deepcopy(start_opts)
+  cfg_opts.range = nil
+  local cfg = merge_config(cfg_opts)
   ensure_highlight(cfg)
 
   local ok, Session = pcall(require, "live-sub.session")
@@ -72,7 +92,7 @@ function M.start(opts)
     return nil
   end
 
-  local session = Session.new(cfg, {})
+  local session = Session.new(cfg, { range = range })
   current_session = session
   local started = session:start()
   if not started then
