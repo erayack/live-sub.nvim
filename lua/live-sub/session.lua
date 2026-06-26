@@ -8,6 +8,13 @@ local function notify(msg, level)
   vim.notify("live-sub.nvim: " .. msg, level or vim.log.levels.INFO)
 end
 
+local function close_timer(timer)
+  if timer and not timer:is_closing() then
+    pcall(timer.stop, timer)
+    pcall(timer.close, timer)
+  end
+end
+
 function Session.new(config, opts)
   opts = opts or {}
   return setmetatable({
@@ -114,8 +121,7 @@ function Session:schedule_preview()
   self.last_preview_version = self.last_preview_version + 1
   local version = self.last_preview_version
   if self.debounce_timer then
-    self.debounce_timer:stop()
-    self.debounce_timer:close()
+    close_timer(self.debounce_timer)
     self.debounce_timer = nil
   end
   local timer = vim.uv.new_timer()
@@ -127,8 +133,7 @@ function Session:schedule_preview()
       if self.debounce_timer == timer then
         self.debounce_timer = nil
       end
-      timer:stop()
-      timer:close()
+      close_timer(timer)
       if self.closed or version ~= self.last_preview_version then
         return
       end
@@ -200,8 +205,7 @@ function Session:close()
   end
   self.closed = true
   if self.debounce_timer then
-    self.debounce_timer:stop()
-    self.debounce_timer:close()
+    close_timer(self.debounce_timer)
     self.debounce_timer = nil
   end
   pcall(function()

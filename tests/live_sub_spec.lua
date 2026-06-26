@@ -23,6 +23,8 @@ local Parser = require("live-sub.parser")
 local Preview = require("live-sub.preview")
 local Session = require("live-sub.session")
 
+vim.cmd("runtime plugin/live-sub.lua")
+
 local function test_parser_accepts_escaped_delimiters_and_flags()
   local parsed = Parser.parse("/a\\/b/c\\/d/gi")
 
