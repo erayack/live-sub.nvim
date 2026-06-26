@@ -1,0 +1,108 @@
+local function assert_equal(actual, expected, message)
+  if actual ~= expected then
+    error(
+      (message or "assertion failed") .. ": expected " .. vim.inspect(expected) .. ", got " .. vim.inspect(actual),
+      2
+    )
+  end
+end
+
+local function assert_truthy(value, message)
+  if not value then
+    error(message or "expected truthy value", 2)
+  end
+end
+
+local function new_buffer(lines)
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  return bufnr
+end
+
+local Parser = require("live-sub.parser")
+local Preview = require("live-sub.preview")
+local Session = require("live-sub.session")
+
+local function test_parser_accepts_escaped_delimiters_and_flags()
+  local parsed = Parser.parse("/a\\/b/c\\/d/gi")
+
+  assert_truthy(parsed.valid, parsed.error)
+  assert_equal(parsed.pattern, "a/b", "parsed pattern")
+  assert_equal(parsed.replacement, "c/d", "parsed replacement")
+  assert_equal(parsed.flags.global, true, "global flag")
+  assert_equal(parsed.flags.ignorecase, true, "ignorecase flag")
+end
+
+local function test_percent_match_expands_without_crashing()
+  local bufnr = new_buffer({ "100% done" })
+  local parsed = Parser.parse("/%/[&]/g")
+  assert_truthy(parsed.valid, parsed.error)
+
+  local replacements, err = Preview.compute_replacements(bufnr, parsed)
+  assert_truthy(replacements, err)
+  assert_equal(#replacements, 1, "replacement count")
+  assert_equal(replacements[1].replacement, "[%]", "replacement text")
+end
+
+local function make_test_session(lines)
+  local target = new_buffer(lines)
+  vim.api.nvim_set_current_buf(target)
+  return Session.new({
+    debounce_ms = 80,
+    preview = { namespace = "live-sub-test", visible_only = true, max_matches = 500 },
+    ui = { width = 30, border = "single", prompt = ":%s" },
+    keymaps = { accept = "<CR>", cancel = "<Esc>" },
+    highlight = { replacement = "LiveSubReplacement" },
+  }, { bufnr = target, winid = vim.api.nvim_get_current_win() })
+end
+
+local function test_session_ignores_text_changes_in_unrelated_buffers()
+  local session = make_test_session({ "foo" })
+
+  local scheduled = 0
+  session.schedule_preview = function()
+    scheduled = scheduled + 1
+  end
+
+  assert_truthy(session:start(), "session should start")
+  scheduled = 0
+
+  local unrelated = new_buffer({ "bar" })
+  vim.api.nvim_exec_autocmds("TextChanged", { buffer = unrelated })
+  assert_equal(scheduled, 0, "unrelated buffer change should not schedule preview")
+
+  session:close()
+end
+
+local function test_session_exposes_preview_regex_errors()
+  local session = make_test_session({ "foo" })
+  assert_truthy(session:start(), "session should start")
+  session:update_input("/\\(/x/")
+  session:refresh_preview()
+
+  assert_truthy(session.last_preview_error, "invalid preview regex should be recorded")
+  session:close()
+end
+
+local function test_session_commit_matches_computed_replacements()
+  local session = make_test_session({ "foo foo", "FOO" })
+  assert_truthy(session:start(), "session should start")
+  session:update_input("/foo/bar/gi")
+  session:commit()
+
+  local lines = vim.api.nvim_buf_get_lines(session.bufnr, 0, -1, false)
+  assert_equal(table.concat(lines, "\n"), "bar bar\nbar", "committed buffer text")
+end
+
+local tests = {
+  test_parser_accepts_escaped_delimiters_and_flags = test_parser_accepts_escaped_delimiters_and_flags,
+  test_percent_match_expands_without_crashing = test_percent_match_expands_without_crashing,
+  test_session_ignores_text_changes_in_unrelated_buffers = test_session_ignores_text_changes_in_unrelated_buffers,
+  test_session_exposes_preview_regex_errors = test_session_exposes_preview_regex_errors,
+  test_session_commit_matches_computed_replacements = test_session_commit_matches_computed_replacements,
+}
+
+for name, fn in pairs(tests) do
+  fn()
+  print("PASS " .. name)
+end
