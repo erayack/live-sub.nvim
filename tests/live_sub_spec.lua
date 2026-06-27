@@ -85,6 +85,75 @@ local function test_percent_match_expands_without_crashing()
   assert_equal(replacements[1].replacement, "[%]", "replacement text")
 end
 
+local function test_replacement_expands_first_capture_group()
+  local bufnr = new_buffer({ "hello world" })
+  local parsed = Parser.parse([[/\(hello\) world/\1/]])
+  assert_truthy(parsed.valid, parsed.error)
+
+  local replacements, err = Preview.compute_replacements(bufnr, parsed)
+  assert_truthy(replacements, err)
+  assert_equal(#replacements, 1, "replacement count")
+  assert_equal(replacements[1].replacement, "hello", "replacement text")
+end
+
+local function test_replacement_expands_second_capture_group()
+  local bufnr = new_buffer({ "first second" })
+  local parsed = Parser.parse([[/\(first\) \(second\)/\2-\1/]])
+  assert_truthy(parsed.valid, parsed.error)
+
+  local replacements, err = Preview.compute_replacements(bufnr, parsed)
+  assert_truthy(replacements, err)
+  assert_equal(#replacements, 1, "replacement count")
+  assert_equal(replacements[1].replacement, "second-first", "replacement text")
+end
+
+local function test_replacement_preserves_escaped_backslashes()
+  local bufnr = new_buffer({ "path file" })
+  local parsed = Parser.parse([[/\(path\) \(file\)/\1\\\2/]])
+  assert_truthy(parsed.valid, parsed.error)
+
+  local replacements, err = Preview.compute_replacements(bufnr, parsed)
+  assert_truthy(replacements, err)
+  assert_equal(#replacements, 1, "replacement count")
+  assert_equal(replacements[1].replacement, [[path\file]], "replacement text")
+end
+
+local function test_replacement_expands_unmatched_capture_to_empty_string()
+  local bufnr = new_buffer({ "foo", "foobar" })
+  local parsed = Parser.parse([[/foo\(bar\)\=/[\1]/g]])
+  assert_truthy(parsed.valid, parsed.error)
+
+  local replacements, err = Preview.compute_replacements(bufnr, parsed)
+  assert_truthy(replacements, err)
+  assert_equal(#replacements, 2, "replacement count")
+  assert_equal(replacements[1].replacement, "[]", "unmatched replacement text")
+  assert_equal(replacements[2].replacement, "[bar]", "matched replacement text")
+end
+
+local function test_replacement_does_not_evaluate_expression_replacement()
+  vim.fn.setreg("a", "unchanged")
+  local bufnr = new_buffer({ "foo" })
+  local parsed = Parser.parse([[/foo/\=setreg('a', 'changed')/]])
+  assert_truthy(parsed.valid, parsed.error)
+
+  local replacements, err = Preview.compute_replacements(bufnr, parsed)
+  assert_truthy(replacements, err)
+  assert_equal(#replacements, 1, "replacement count")
+  assert_equal(replacements[1].replacement, [[\=setreg('a', 'changed')]], "literal expression replacement text")
+  assert_equal(vim.fn.getreg("a"), "unchanged", "expression replacement should not run")
+end
+
+local function test_replacement_uses_full_line_context_for_captures()
+  local bufnr = new_buffer({ "foobar" })
+  local parsed = Parser.parse([[/\(foo\)\zsbar/\1-&/]])
+  assert_truthy(parsed.valid, parsed.error)
+
+  local replacements, err = Preview.compute_replacements(bufnr, parsed)
+  assert_truthy(replacements, err)
+  assert_equal(#replacements, 1, "replacement count")
+  assert_equal(replacements[1].replacement, "foo-bar", "context-sensitive replacement text")
+end
+
 local function test_preview_render_respects_explicit_range()
   local bufnr = new_buffer({ "foo", "foo", "foo" })
   vim.api.nvim_set_current_buf(bufnr)
@@ -256,6 +325,12 @@ local tests = {
   test_ui_status_updates_window_title = test_ui_status_updates_window_title,
   test_parser_accepts_escaped_delimiters_and_flags = test_parser_accepts_escaped_delimiters_and_flags,
   test_percent_match_expands_without_crashing = test_percent_match_expands_without_crashing,
+  test_replacement_expands_first_capture_group = test_replacement_expands_first_capture_group,
+  test_replacement_expands_second_capture_group = test_replacement_expands_second_capture_group,
+  test_replacement_preserves_escaped_backslashes = test_replacement_preserves_escaped_backslashes,
+  test_replacement_expands_unmatched_capture_to_empty_string = test_replacement_expands_unmatched_capture_to_empty_string,
+  test_replacement_does_not_evaluate_expression_replacement = test_replacement_does_not_evaluate_expression_replacement,
+  test_replacement_uses_full_line_context_for_captures = test_replacement_uses_full_line_context_for_captures,
   test_preview_render_respects_explicit_range = test_preview_render_respects_explicit_range,
   test_session_ignores_text_changes_in_unrelated_buffers = test_session_ignores_text_changes_in_unrelated_buffers,
   test_session_exposes_preview_regex_errors = test_session_exposes_preview_regex_errors,

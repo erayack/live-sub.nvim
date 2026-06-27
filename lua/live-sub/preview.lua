@@ -17,14 +17,42 @@ function Preview.clear(bufnr, ns)
   end
 end
 
-local function expand_replacement(replacement, match)
-  local out = replacement:gsub("\\0", function()
-    return match
-  end)
-  out = out:gsub("&", function()
-    return match
-  end)
-  return out
+local function expand_replacement(parsed, match, captures)
+  local replacement = parsed.replacement or ""
+  local out = {}
+  local i = 1
+  while i <= #replacement do
+    local ch = replacement:sub(i, i)
+    if ch == "&" then
+      table.insert(out, match)
+    elseif ch == "\\" then
+      local next_ch = replacement:sub(i + 1, i + 1)
+      if next_ch == "" then
+        table.insert(out, "\\")
+      elseif next_ch == "&" then
+        table.insert(out, "&")
+        i = i + 1
+      elseif next_ch == "\\" then
+        table.insert(out, "\\")
+        i = i + 1
+      elseif next_ch:match("%d") then
+        local capture_index = tonumber(next_ch)
+        if capture_index == 0 then
+          table.insert(out, match)
+        else
+          table.insert(out, captures[capture_index] or "")
+        end
+        i = i + 1
+      else
+        table.insert(out, "\\" .. next_ch)
+        i = i + 1
+      end
+    else
+      table.insert(out, ch)
+    end
+    i = i + 1
+  end
+  return table.concat(out), nil
 end
 
 local function padded_overlay(replacement, match)
@@ -49,7 +77,18 @@ local function find_line_matches(line, row, parsed, max_remaining)
     if s == -1 or e == -1 then
       break
     end
-    local replacement = expand_replacement(parsed.replacement, text)
+    local ok_captures, matchlist = pcall(vim.fn.matchlist, line, pat, start)
+    if not ok_captures then
+      return nil, tostring(matchlist)
+    end
+    local captures = {}
+    for i = 1, 9 do
+      captures[i] = matchlist[i + 1]
+    end
+    local replacement, replace_err = expand_replacement(parsed, text, captures)
+    if replace_err then
+      return nil, replace_err
+    end
     table.insert(matches, {
       start_row = row,
       start_col = s,
